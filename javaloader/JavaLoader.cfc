@@ -28,6 +28,7 @@ Purpose:    Utlitity class for loading Java Classes
 	<cfargument name="sourceDirectories" hint="Directories that contain Java source code that are to be dynamically compiled" type="array" required="No">
 	<cfargument name="compileDirectory" hint="the directory to build the .jar file for dynamic compilation in, defaults to ./tmp" type="string" required="No" default="#getDirectoryFromPath(getMetadata(this).path)#/tmp">
 	<cfargument name="trustedSource" hint="Whether or not the source is trusted, i.e. it is going to change? Defaults to false, so changes will be recompiled and loaded" type="boolean" required="No" default="false">
+	<cfargument name="classLoaderClass" hint="Classloader for JavaLoader to use when using your classes" type="String" required="No" default="com.compoundtheory.classloader.NetworkClassLoader">
 
 	<cfscript>
 		initUseJavaProxyCFC();
@@ -45,6 +46,8 @@ Purpose:    Utlitity class for loading Java Classes
 
 		setClassLoadPaths(arguments.loadPaths);
 		setParentClassLoader(arguments.parentClassLoader);
+
+		setClassLoaderClass(arguments.classLoaderClass);
 
 		ensureNetworkClassLoaderOnServerScope();
 
@@ -93,7 +96,7 @@ Purpose:    Utlitity class for loading Java Classes
 	</cfscript>
 </cffunction>
 
-<cffunction name="getURLClassLoader" hint="Returns the com.compoundtheory.classloader.NetworkClassLoader in case you need access to it" access="public" returntype="any" output="false">
+<cffunction name="getURLClassLoader" hint="Returns the ClassLoader in use (defaults to com.compoundtheory.classloader.NetworkClassLoader) in case you need access to it" access="public" returntype="any" output="false">
 	<cfreturn instance.ClassLoader />
 </cffunction>
 
@@ -134,28 +137,60 @@ Purpose:    Utlitity class for loading Java Classes
 		var networkClassLoaderClass = 0;
 		var networkClassLoaderProxy = 0;
 
-		networkClassLoaderClass = getServerURLClassLoader().loadClass("com.compoundtheory.classloader.NetworkClassLoader");
+		var Class = createObject("java", "java.lang.Class");
+		var Array = createObject("java", "java.lang.reflect.Array");
+		var file = 0;
+		var urls = Array.newInstance(Class.forName("java.net.URL"), ArrayLen(getClassLoadPaths()));
+		var counter = 0;
+		
+
+		networkClassLoaderClass = getServerURLClassLoader().loadClass(getClassLoaderClass());
 
 		networkClassLoaderProxy = createJavaProxy(networkClassLoaderClass);
 
-		if(isObject(getParentClassLoader()))
+		//If the class derives from URLClassLoader, use the constructor to pass in the list of Jars
+		if(IsInstanceOf(networkClassLoaderProxy,"java.net.URLClassLoader"))
 		{
-			classLoader = networkClassLoaderProxy.init(getParentClassLoader());
-		}
-		else
-		{
-			classLoader = networkClassLoaderProxy.init();
-		}
 
-		while(iterator.hasNext())
-		{
-			file = createObject("java", "java.io.File").init(iterator.next());
-			if(NOT file.exists())
+			// build the array of URLs
+			while(iterator.hasNext())
 			{
-				throwException("javaloader.PathNotFoundException", "The path you have specified could not be found", file.getAbsolutePath() & " does not exist");
+				Array.set(urls, counter, createObject("java", "java.io.File").init(iterator.next()).toURL());
+				counter = counter + 1;
 			}
 
-			classLoader.addUrl(file.toURL());
+			if(isObject(getParentClassLoader()))
+			{
+				classLoader = networkClassLoaderProxy.init(urls,getParentClassLoader());
+			}
+			else
+			{
+				classLoader = networkClassLoaderProxy.init(urls);
+			}
+			
+		}
+		else //Otherwise, use the NetworkClassLoader pattern of calling addURL() post-construction
+		{
+			if(isObject(getParentClassLoader()))
+			{
+				classLoader = networkClassLoaderProxy.init(getParentClassLoader());
+			}
+			else
+			{
+				classLoader = networkClassLoaderProxy.init();
+			}
+			
+			while(iterator.hasNext())
+			{
+				file = createObject("java", "java.io.File").init(iterator.next());
+				if(NOT file.exists())
+				{
+					throwException("javaloader.PathNotFoundException", "The path you have specified could not be found", file.getAbsolutePath() & " does not exist");
+				}
+	
+				classLoader.addUrl(file.toURL());
+			}
+					
 		}
 
 		setURLClassLoader(classLoader);
@@ -402,6 +437,16 @@ Purpose:    Utlitity class for loading Java Classes
 <cffunction name="setURLClassLoader" access="private" returntype="void" output="false">
 	<cfargument name="ClassLoader" type="any" required="true">
 	<cfset instance.ClassLoader = arguments.ClassLoader />
+</cffunction>
+
+<cffunction name="getClassLoaderClass" access="private" returntype="String" output="false">
+	<cfreturn instance.ClassLoaderClass />
+</cffunction>
+
+
+<cffunction name="setClassLoaderClass" access="private" returntype="void" output="false">
+	<cfargument name="ClassLoaderClass" type="any" required="true">
+	<cfset instance.ClassLoaderClass = arguments.ClassLoaderClass />
 </cffunction>
 
 <cffunction name="hasJavaCompiler" hint="whether this object has a javaCompiler" access="private" returntype="boolean" output="false">
