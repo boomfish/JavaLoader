@@ -28,7 +28,7 @@ The last `getJavaLoader()` argument, `loadRelativePaths`, is an optional array. 
 
 Example [ColdSpring](http://coldspringframework.org/) bean factory configuration (assumes JavaLoaderFactory.cfc in Web root and /opencsv is a CFML mapping or in Web root):
 
-	<bean id="javaLoaderFactory" class="JavaLoaderFactory.JavaLoaderFactory" />
+	<bean id="javaLoaderFactory" class="javaloader.factory.JavaLoaderFactory" />
 
 	<bean id="javaLoader" factory-bean="javaLoaderFactory" factory-method="getJavaLoader">
 		<constructor-arg name="loadPaths">
